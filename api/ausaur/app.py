@@ -12,6 +12,7 @@ app.add_middleware(
 )
 
 @app.get("/health")
+@app.get("/api/health")
 def health():
     return {"ok": True}
 
