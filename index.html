@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Au SAURcours ! — Démo (croquis + thème clair)</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">SAUR</div>
+      <div class="brand-text">
+        <div class="title">Au <b>SAUR</b>cours !</div>
+        <div class="subtitle">Base de process interne</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <button class="navbtn active" data-tab="categories">📚 Catégories</button>
+      <button class="navbtn" data-tab="outils">🛠️ Outils</button>
+      <button class="navbtn" data-tab="diagnostic">🩺 Diagnostic</button>
+      <button class="navbtn" data-tab="mails">✉️ Mails</button>
+    </nav>
+    <div class="foot">
+      <label class="switch">
+        <input id="adminToggle" type="checkbox"/>
+        <span class="slider"></span>
+      </label>
+      <span class="muted">Mode admin</span>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="searchbar">
+        <input id="q" type="search" placeholder="Barre de recherche — ex : ABO, résil, mensu, démat…" autofocus/>
+        <button id="btn">Rechercher</button>
+      </div>
+      <div id="suggest" class="suggest hidden" role="listbox" aria-label="Résultats de recherche"></div>
+    </header>
+
+    <main class="article-area">
+      <div class="article-head">
+        <div class="breadcrumbs" id="breadcrumbs">Catégories › Abonnement</div>
+        <div class="article-actions">
+          <button id="editBtn" class="edit" disabled title="Modifier l’article (admin)">
+            ✏️ Modifier l’article
+          </button>
+        </div>
+      </div>
+
+      <article class="article" id="article">
+        <h1 id="art-title">Créer un abonnement (particulier)</h1>
+        <div class="meta" id="art-meta">Abonnement • Process • Tags : abonnement, DocuSign, index, paiement, opportunité</div>
+        <div class="content" id="art-content">
+          <p><b>Étapes</b> : qualifier la demande › Nouvel abonnement ; renseigner identité, coordonnées, logement (branchement Eau), index et date ; choisir mode de paiement ; DocuSign après saisie complète.</p>
+          <p><b>Liens internes</b> : <a href="#" data-goto="resiliation">Résiliation du contrat</a>, <a href="#" data-goto="procedure-docusign">Procédure DocuSign</a>.</p>
+        </div>
+      </article>
+    </main>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="app.js" defer></script>
+</body>
+</html>
