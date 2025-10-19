@@ -267,3 +267,96 @@ def delete_article(id:int, request: Request):
         cur.execute("DELETE FROM articles WHERE id=%s",(id,))
     meili_delete(id)
     return {"ok":True}
+
+# --- Alias simple /search (pour tolérer /api retiré par le proxy) ---
+from typing import Optional, List
+from fastapi import Query
+import os, json
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+
+MEILI_URL = os.getenv("MEILI_URL", "http://127.0.0.1:7700")
+MEILI_INDEX = os.getenv("MEILI_INDEX", "articles")
+MEILI_MASTER_KEY = os.getenv("MEILI_MASTER_KEY", "")
+
+@app.get("/search")
+def search_alias(q: str, categories: Optional[List[str]] = Query(None)):
+    payload = {"q": q, "limit": 20}
+    if categories:
+        payload["filter"] = " OR ".join([f'category = "{c}"' for c in categories])
+    req = Request(
+        f"{MEILI_URL}/indexes/{MEILI_INDEX}/search",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        method="POST",
+    )
+    if MEILI_MASTER_KEY:
+        req.add_header("Authorization", f"Bearer {MEILI_MASTER_KEY}")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urlopen(req) as r:
+            data = json.loads(r.read().decode("utf-8"))
+            return {"hits": data.get("hits", [])}
+    except HTTPError as e:
+        return {"hits": [], "error": f"meili {e.code}"}
+
+# --- SEARCH endpoints (ajout) ---
+from fastapi import Query
+from typing import Optional, List
+import os, json
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+
+MEILI_URL = os.getenv("MEILI_URL","http://127.0.0.1:7700")
+MEILI_INDEX = os.getenv("MEILI_INDEX","articles")
+MEILI_MASTER_KEY = os.getenv("MEILI_MASTER_KEY","")
+
+def _do_search(q: str, categories: Optional[List[str]]):
+    payload = {"q": q, "limit": 20}
+    if categories:
+        payload["filter"] = " OR ".join([f'category = "{c}"' for c in categories])
+    req = Request(
+        f"{MEILI_URL}/indexes/{MEILI_INDEX}/search",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        method="POST",
+    )
+    if MEILI_MASTER_KEY:
+        req.add_header("Authorization", f"Bearer {MEILI_MASTER_KEY}")
+    req.add_header("Content-Type", "application/json")
+    with urlopen(req) as r:
+        data = json.loads(r.read().decode("utf-8"))
+        return {"hits": data.get("hits", [])}
+
+@app.get("/api/search")
+def search_api(q: str, categories: Optional[List[str]] = Query(None)):
+    try:
+        return _do_search(q, categories)
+    except (HTTPError, URLError) as e:
+        return {"hits": [], "error": f"{e}"}
+
+@app.get("/search")  # alias de secours
+def search_alias(q: str, categories: Optional[List[str]] = Query(None)):
+    try:
+        return _do_search(q, categories)
+    except (HTTPError, URLError) as e:
+        return {"hits": [], "error": f"{e}"}
+
+# --- ALIAS pour compat simplicité derrière Apache ---
+from fastapi import Query
+from typing import Optional, List
+
+# Si la fonction search officielle est /api/search :
+# On lui colle un alias public /search qui délègue dessus.
+
+@app.get("/search")
+def _search_alias(q: str, categories: Optional[List[str]] = Query(None)):
+    # Délègue à l'endpoint officiel si tu l’as appelé différemment, adapte :
+    return search(q=q, categories=categories)
+
+# Idem santé, pour que /api/health puisse cibler /health si besoin
+@app.get("/health")
+def _health_alias():
+    return {"ok": True}
+
+@app.get("/api/health")
+def api_health():
+    return {"ok": True}
