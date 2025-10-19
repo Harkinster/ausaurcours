@@ -1,0 +1,20 @@
+# secrets & env
+api/.env
+**/.env
+# venv & caches Python
+api/.venv/
+**/__pycache__/
+**/*.pyc
+# logs
+logs/
+**/*.log
+# front node (si un jour tu ajoutes un build tool)
+web/node_modules/
+# OS
+.DS_Store
+# +++ ajouts importants +++
+api/.reindex_env
+*.env
+*.env.*
+**/.env
+# +++ fin ajouts +++

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Au SAURcours !</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="/assets/favicon.ico">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <img src="/assets/logo.png" alt="Au SAURcours" class="logo">
+    <div class="search">
+      <input id="q" type="search" placeholder="Rechercher (3+ lettres)…">
+      <button id="btn">Rechercher</button>
+      <div id="suggest" class="suggest hidden"></div>
+    </div>
+    <div class="admin">
+      <button id="btnAdmin" title="Activer/Désactiver admin">Admin</button>
+      <button id="btnCreate" class="hidden">Créer</button>
+    </div>
+  </header>
+
+  <nav id="nav-dom" class="nav">
+    <a href="#" data-dom="home" class="active">Accueil</a>
+    <a href="#" data-dom="abonnement">Abonnement</a>
+    <a href="#" data-dom="diagnostic">Diagnostic</a>
+    <a href="#" data-dom="mails">Mails</a>
+  </nav>
+
+  <main class="layout">
+    <section id="results" class="results"></section>
+    <section id="article" class="article"></section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
