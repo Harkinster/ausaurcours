@@ -1,0 +1,3 @@
+ausaurcours-api/.venv/
+ausaurcours-api/**/__pycache__/
+ausaurcours-api/**/*.pyc

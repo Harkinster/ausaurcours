@@ -1,0 +1,470 @@
+from .audit import log_action
+from datetime import timezone
+from typing import Dict, List, Optional
+from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from . import models, schemas
+from .models import AuditLog
+from .config import get_settings
+from .database import get_db
+from .search import delete_document, ensure_collection, search as ts_search, upsert_document
+
+# Auth imports (JWT + admin token)
+from .auth import (
+    router as auth_router,
+    admin_required,
+    require_editor,
+    require_admin,
+    _current_user,
+)
+
+settings = get_settings()
+app = FastAPI(title=settings.SITE_NAME)
+
+
+
+# CORS
+origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins or ["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Monte /api/auth/*
+app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
+
+
+@app.get("/api/health")
+def health(db: Session = Depends(get_db)):
+    db.execute(select(models.User).limit(1))
+    return {"ok": True, "env": settings.ENV}
+
+
+# ---------------- PUBLIC ----------------
+@app.get("/api/search")
+def search(
+    q: str = "",
+    categories: Optional[str] = None,
+    tags: Optional[str] = None,
+    limit: int = 20,
+):
+    ensure_collection()
+    filters: Dict[str, List[str]] = {}
+    if categories:
+        filters["category"] = [c.strip() for c in categories.split(",") if c.strip()]
+    if tags:
+        filters["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+    try:
+        res = ts_search(q or "*", filters, limit)
+        hits = []
+        for h in res.get("hits", []):
+            doc = h.get("document", {})
+            hits.append(
+                {
+                    "slug": doc.get("slug"),
+                    "title": doc.get("title"),
+                    "category": doc.get("category"),
+                    "tags": doc.get("tags", []),
+                    "snippet": (doc.get("content") or "")[:200] + "...",
+                }
+            )
+        return {"hits": hits, "source": "typesense"}
+    except Exception as e:
+        return {"hits": [], "source": "fallback", "error": str(e)}
+
+
+@app.get("/api/articles/{slug}")
+def get_article(slug: str, db: Session = Depends(get_db)):
+    a = db.query(models.Article).filter(models.Article.slug == slug).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="Article non trouvé")
+    return {
+        "slug": a.slug,
+        "title": a.title,
+        "content": a.content or "",
+        "category": (a.category.slug if a.category else None),
+        "tags": [t.name for t in a.tags],
+        "created_at": int(a.created_at.timestamp()) if a.created_at else None,
+        "updated_at": int(a.updated_at.timestamp()) if a.updated_at else None,
+        "author": (a.author.username if a.author else None),
+    }
+
+
+# ------------- EDITOR (édition depuis le front avec JWT) -------------
+def _audit(
+    db: Session,
+    user_id: Optional[int],
+    action: str,
+    entity_type: str,
+    entity_id: str | int,
+    meta: Optional[dict] = None,
+):
+    log = AuditLog(
+        user_id=user_id,
+        action=action,
+        entity_type=entity_type,
+        entity_id=str(entity_id),
+        meta=meta or {},
+    )
+    db.add(log)
+    db.commit()
+
+
+@app.post("/api/editor/articles", dependencies=[Depends(require_editor)])
+def editor_create_article(
+    payload: schemas.ArticleIn,
+    db: Session = Depends(get_db),
+    user=Depends(_current_user),
+):
+    # catégorie
+    cat = None
+    if payload.category_slug:
+        from .crud import get_category_by_slug
+
+        cat = get_category_by_slug(db, payload.category_slug)
+        if not cat:
+            raise HTTPException(400, "Catégorie inconnue")
+
+    # auteur = user courant
+    author = db.query(models.User).filter(models.User.username == user.username).first()
+
+    # tags
+    from .crud import get_tag_by_name
+
+    tag_objs = []
+    for t in payload.tags or []:
+        obj = get_tag_by_name(db, t)
+        if not obj:
+            obj = models.Tag(name=t)
+            db.add(obj)
+            db.flush()
+        tag_objs.append(obj)
+
+    art = models.Article(
+        slug=payload.slug,
+        title=payload.title,
+        content=payload.content or "",
+        category=cat,
+        author=author,
+        links_json=payload.links or [],
+    )
+    art.tags = tag_objs
+    db.add(art)
+    db.commit()
+    db.refresh(art)
+
+    ensure_collection()
+    upsert_document(
+        {
+            "id": str(art.id),
+            "slug": art.slug,
+            "title": art.title,
+            "content": art.content or "",
+            "category": art.category.slug if art.category else "",
+            "tags": [t.name for t in art.tags],
+            "created_at": int(art.created_at.replace(tzinfo=timezone.utc).timestamp())
+            if art.created_at
+            else 0,
+            "updated_at": int(art.updated_at.replace(tzinfo=timezone.utc).timestamp())
+            if art.updated_at
+            else 0,
+        }
+    )
+
+    _audit(db, author.id if author else None, "create", "article", art.id, {"slug": art.slug})
+    return {"ok": True, "id": art.id, "slug": art.slug}
+
+
+@app.put("/api/editor/articles/{id}", dependencies=[Depends(require_editor)])
+def editor_update_article(
+    id: int,
+    payload: schemas.ArticlePatch,
+    db: Session = Depends(get_db),
+    user=Depends(_current_user),
+):
+    art = db.get(models.Article, id)
+    if not art:
+        raise HTTPException(404, "Article introuvable")
+
+    if payload.slug is not None:
+        art.slug = payload.slug
+    if payload.title is not None:
+        art.title = payload.title
+    if payload.content is not None:
+        art.content = payload.content
+    if payload.category_slug is not None:
+        from .crud import get_category_by_slug
+
+        art.category = (
+            get_category_by_slug(db, payload.category_slug)
+            if payload.category_slug
+            else None
+        )
+    if payload.tags is not None:
+        from .crud import get_tag_by_name
+
+        tag_objs = []
+        for t in payload.tags:
+            obj = get_tag_by_name(db, t)
+            if not obj:
+                obj = models.Tag(name=t)
+                db.add(obj)
+                db.flush()
+            tag_objs.append(obj)
+        art.tags = tag_objs
+    if payload.links is not None:
+        art.links_json = payload.links
+
+    db.commit()
+    db.refresh(art)
+
+    ensure_collection()
+    upsert_document(
+        {
+            "id": str(art.id),
+            "slug": art.slug,
+            "title": art.title,
+            "content": art.content or "",
+            "category": art.category.slug if art.category else "",
+            "tags": [t.name for t in art.tags],
+            "created_at": int(art.created_at.timestamp()) if art.created_at else 0,
+            "updated_at": int(art.updated_at.timestamp()) if art.updated_at else 0,
+        }
+    )
+
+    editor = db.query(models.User).filter(models.User.username == user.username).first()
+    _audit(db, editor.id if editor else None, "update", "article", art.id, {"slug": art.slug})
+    return {"ok": True}
+
+
+@app.delete("/api/editor/articles/{id}", dependencies=[Depends(require_editor)])
+def editor_delete_article(
+    id: int, db: Session = Depends(get_db), user=Depends(_current_user)
+):
+    art = db.get(models.Article, id)
+    if not art:
+        return {"ok": True}
+    db.delete(art)
+    db.commit()
+    delete_document(str(id))
+
+    editor = db.query(models.User).filter(models.User.username == user.username).first()
+    _audit(db, editor.id if editor else None, "delete", "article", id, {"slug": art.slug})
+    return {"ok": True}
+
+
+# ---------------- ADMIN (back office via X-Admin-Token) ----------------
+@app.get("/api/admin/articles", dependencies=[Depends(admin_required)])
+def list_articles(db: Session = Depends(get_db), limit: int = 100):
+    rows = db.execute(select(models.Article).limit(limit)).scalars().all()
+    out = []
+    for a in rows:
+        out.append(
+            {
+                "id": a.id,
+                "slug": a.slug,
+                "title": a.title,
+                "category": a.category.slug if a.category else None,
+                "tags": [t.name for t in a.tags],
+                "updated_at": a.updated_at.isoformat() if a.updated_at else "",
+            }
+        )
+    return out
+
+
+@app.post("/api/admin/articles", dependencies=[Depends(admin_required)])
+def create_article(payload: schemas.ArticleIn, db: Session = Depends(get_db)):
+    # resolve refs
+    cat = None
+    if payload.category_slug:
+        from .crud import get_category_by_slug
+
+        cat = get_category_by_slug(db, payload.category_slug)
+        if not cat:
+            raise HTTPException(400, "Catégorie inconnue")
+    author = None
+    if payload.author_username:
+        from .crud import get_user_by_username
+
+        author = get_user_by_username(db, payload.author_username)
+        if not author:
+            raise HTTPException(400, "Auteur inconnu")
+
+    art = models.Article(
+        slug=payload.slug,
+        title=payload.title,
+        content=payload.content or "",
+        category=cat,
+        author=author,
+        links_json=payload.links or [],
+    )
+    db.add(art)
+    db.flush()
+
+    # tags
+    from .crud import get_tag_by_name
+
+    tag_objs = []
+    for t in payload.tags or []:
+        obj = get_tag_by_name(db, t)
+        if not obj:
+            obj = models.Tag(name=t)
+            db.add(obj)
+            db.flush()
+        tag_objs.append(obj)
+    art.tags = tag_objs
+    db.commit()
+    db.refresh(art)
+
+    ensure_collection()
+    doc = {
+        "id": str(art.id),
+        "slug": art.slug,
+        "title": art.title,
+        "content": art.content or "",
+        "category": art.category.slug if art.category else "",
+        "tags": [t.name for t in art.tags],
+        "created_at": int(art.created_at.replace(tzinfo=timezone.utc).timestamp())
+        if art.created_at
+        else 0,
+        "updated_at": int(art.updated_at.replace(tzinfo=timezone.utc).timestamp())
+        if art.updated_at
+        else 0,
+    }
+    upsert_document(doc)
+    return {"ok": True, "id": art.id, "slug": art.slug}
+
+
+@app.put("/api/admin/articles/{id}", dependencies=[Depends(admin_required)])
+def update_article(id: int, payload: schemas.ArticlePatch, db: Session = Depends(get_db)):
+    art = db.get(models.Article, id)
+    if not art:
+        raise HTTPException(404, "Article introuvable")
+
+    if payload.slug is not None:
+        art.slug = payload.slug
+    if payload.title is not None:
+        art.title = payload.title
+    if payload.content is not None:
+        art.content = payload.content
+
+    if payload.category_slug is not None:
+        from .crud import get_category_by_slug
+
+        cat = get_category_by_slug(db, payload.category_slug) if payload.category_slug else None
+        art.category = cat
+
+    if payload.author_username is not None:
+        from .crud import get_user_by_username
+
+        author = get_user_by_username(db, payload.author_username) if payload.author_username else None
+        art.author = author
+
+    if payload.tags is not None:
+        from .crud import get_tag_by_name
+
+        tag_objs = []
+        for t in payload.tags:
+            obj = get_tag_by_name(db, t)
+            if not obj:
+                obj = models.Tag(name=t)
+                db.add(obj)
+                db.flush()
+            tag_objs.append(obj)
+        art.tags = tag_objs
+
+    if payload.links is not None:
+        art.links_json = payload.links
+
+    db.commit()
+    db.refresh(art)
+
+    ensure_collection()
+    upsert_document(
+        {
+            "id": str(art.id),
+            "slug": art.slug,
+            "title": art.title,
+            "content": art.content or "",
+            "category": art.category.slug if art.category else "",
+            "tags": [t.name for t in art.tags],
+            "created_at": int(art.created_at.timestamp()) if art.created_at else 0,
+            "updated_at": int(art.updated_at.timestamp()) if art.updated_at else 0,
+        }
+    )
+    return {"ok": True}
+
+
+@app.delete("/api/admin/articles/{id}", dependencies=[Depends(admin_required)])
+def delete_article(id: int, db: Session = Depends(get_db)):
+    art = db.get(models.Article, id)
+    if not art:
+        return {"ok": True}
+    db.delete(art)
+    db.commit()
+    delete_document(str(id))
+    return {"ok": True}
+
+
+@app.post("/api/admin/categories", dependencies=[Depends(admin_required)])
+def create_category(payload: schemas.CategoryIn, db: Session = Depends(get_db)):
+    c = models.Category(name=payload.name, slug=payload.slug)
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    return {"ok": True, "id": c.id}
+
+
+@app.post("/api/admin/tags", dependencies=[Depends(admin_required)])
+def create_tag(payload: schemas.TagIn, db: Session = Depends(get_db)):
+    t = models.Tag(name=payload.name)
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    return {"ok": True, "id": t.id}
+
+
+@app.post("/api/admin/users", dependencies=[Depends(admin_required)])
+def create_user(payload: schemas.UserIn, db: Session = Depends(get_db)):
+    u = models.User(username=payload.username, email=payload.email, role=payload.role)
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+    return {"ok": True, "id": u.id}
+
+
+@app.get("/api/admin/logs", dependencies=[Depends(admin_required)])
+def list_logs(limit: int = 100, db: Session = Depends(get_db)):
+    rows = db.query(AuditLog).order_by(AuditLog.id.desc()).limit(limit).all()
+    return [
+        {
+            "id": r.id,
+            "user": (r.user.username if r.user else None),
+            "action": r.action,
+            "entity_type": r.entity_type,
+            "entity_id": r.entity_id,
+            "meta": r.meta,
+            "created_at": r.created_at.isoformat(),
+        }
+        for r in rows
+    ]
+app = FastAPI(
+
+
+    title="Au SAURcours API",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+    root_path="/api",  # si Apache proxifie /api
+)
+# Health endpoint
+@app.get("/health")
+def health():
+    return {"status": "ok"}

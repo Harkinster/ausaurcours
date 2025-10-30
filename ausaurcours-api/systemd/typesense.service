@@ -1,0 +1,19 @@
+[Unit]
+Description=Typesense Search Server
+After=network.target
+Requires=network.target
+
+[Service]
+User=root
+Group=root
+ExecStart=/srv/typesense/bin/typesense-server \
+  --data-dir /srv/typesense/data \
+  --api-key $(cat /srv/typesense/TYPESENSE_API_KEY.txt) \
+  --listen-addr 127.0.0.1 \
+  --port 8108
+Restart=always
+RestartSec=3
+LimitNOFILE=100000
+
+[Install]
+WantedBy=multi-user.target

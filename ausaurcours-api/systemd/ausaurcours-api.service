@@ -1,0 +1,16 @@
+[Unit]
+Description=Au SAURcours API (FastAPI + Uvicorn)
+After=network.target mariadb.service
+Requires=network.target
+
+[Service]
+User=harkinster
+Group=www-data
+WorkingDirectory=/srv/ausaurcours-api
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/srv/ausaurcours-api/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers 2
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

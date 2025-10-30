@@ -1,0 +1,82 @@
+# app/auth.py
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+from fastapi import Depends, HTTPException, Header, Request
+from jose import jwt, JWTError
+from passlib.hash import bcrypt
+from sqlalchemy.orm import Session
+
+from .config import get_settings
+from .database import get_db
+from . import models
+from .crud import get_user_by_username
+
+# --- helpers mot de passe ---
+def verify_password(plain: str, hashed: str) -> bool:
+    try:
+        return bcrypt.verify(plain, hashed)
+    except Exception:
+        return False
+
+def hash_password(plain: str) -> str:
+    return bcrypt.hash(plain)
+
+# --- JWT ---
+def create_access_token(sub: str, role: str, expires_minutes: int | None = None) -> str:
+    s = get_settings()
+    exp_minutes = expires_minutes or s.JWT_EXPIRE_MINUTES
+    expire = datetime.now(tz=timezone.utc) + timedelta(minutes=exp_minutes)
+    to_encode = {"sub": sub, "role": role, "exp": int(expire.timestamp())}
+    return jwt.encode(to_encode, s.JWT_SECRET, algorithm="HS256")
+
+def decode_token(token: str) -> dict:
+    s = get_settings()
+    try:
+        return jwt.decode(token, s.JWT_SECRET, algorithms=["HS256"])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token invalide")
+
+def get_current_user_from_token(token: str, db: Session) -> models.User:
+    payload = decode_token(token)
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(401, "Token invalide")
+    user = get_user_by_username(db, username)
+    if not user:
+        raise HTTPException(401, "Utilisateur introuvable")
+    return user
+
+# --- Gate pour routes admin (JWT OU X-Admin-Token) ---
+def require_editor(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+    x_admin_token: Optional[str] = Header(None, convert_underscores=False),
+    db: Session = Depends(get_db),
+):
+    s = get_settings()
+
+    # 1) JWT Bearer
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1]
+        user = get_current_user_from_token(token, db)
+        if user.role not in ("editor", "admin"):
+            raise HTTPException(403, "Permission insuffisante")
+        return user
+
+    # 2) Compat ancien X-Admin-Token
+    if x_admin_token and x_admin_token == s.ADMIN_TOKEN:
+        # pseudo-user admin
+        return models.User(username="__admin_token__", role="admin")
+
+    raise HTTPException(401, "Admin token invalide")
+
+def require_admin(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+    x_admin_token: Optional[str] = Header(None, convert_underscores=False),
+    db: Session = Depends(get_db),
+):
+    user = require_editor(request, authorization, x_admin_token, db)
+    if user.role != "admin":
+        raise HTTPException(403, "Admin requis")
+    return user

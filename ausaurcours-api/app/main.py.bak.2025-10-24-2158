@@ -1,0 +1,287 @@
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from sqlalchemy import select
+from datetime import timezone
+from typing import List, Optional, Dict
+
+from .config import get_settings
+from .database import get_db
+from . import models, schemas
+from .auth import (
+    admin_required,              # compat X-Admin-Token
+    verify_password,
+    create_access_token,
+    get_current_user,
+    role_required,
+)
+from .search import ensure_collection, upsert_document, delete_document, search as ts_search
+from .auth import require_editor, require_admin, verify_password, create_access_token
+from fastapi import Body
+
+# -------------------------------------------------
+# INIT APP
+# -------------------------------------------------
+settings = get_settings()
+app = FastAPI(title=settings.SITE_NAME)  # <= NE PAS mettre openapi_url=None
+
+# -------------------------------------------------
+# CORS
+# -------------------------------------------------
+origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins or ["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# -------------------------------------------------
+# HEALTH / DIAG
+# -------------------------------------------------
+@app.get("/api/health")
+def health(db: Session = Depends(get_db)):
+    db.execute(select(models.User).limit(1))
+    return {"ok": True, "env": settings.ENV}
+
+@app.get("/api/_routes")
+def routes_diag():
+    # petit helper pour voir rapidement les routes chargées
+    return [r.path for r in app.routes]
+
+# -------------------------------------------------
+# AUTH (JWT)
+# -------------------------------------------------
+@app.post("/api/auth/login")
+def login(payload: dict, db: Session = Depends(get_db)):
+    username = (payload.get("username") or "").strip()
+    password = payload.get("password") or ""
+    user = db.query(models.User).filter(models.User.username == username).first()
+    if not user or not verify_password(password, user.password_hash or ""):
+        raise HTTPException(401, "Identifiants invalides")
+    token = create_access_token(user.username, user.role, settings.JWT_EXPIRE_MINUTES)
+    return {"access_token": token, "token_type": "bearer", "user": {"username": user.username, "role": user.role}}
+
+@app.get("/api/auth/me")
+def me(user = Depends(get_current_user)):
+    return {"username": user.username, "email": user.email, "role": user.role}
+
+# -------------------------------------------------
+# PUBLIC SEARCH
+# -------------------------------------------------
+@app.get("/api/search")
+def search(q: str = "", categories: Optional[str] = None, tags: Optional[str] = None, limit: int = 20):
+    ensure_collection()
+    filters: Dict[str, List[str]] = {}
+    if categories:
+        filters["category"] = [c.strip() for c in categories.split(",") if c.strip()]
+    if tags:
+        filters["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+    try:
+        res = ts_search(q or "*", filters, limit)
+        hits = []
+        for h in res.get("hits", []):
+            doc = h.get("document", {})
+            hits.append({
+                "slug": doc.get("slug"),
+                "title": doc.get("title"),
+                "category": doc.get("category"),
+                "tags": doc.get("tags", []),
+                "snippet": (doc.get("content") or "")[:200] + "...",
+            })
+        return {"hits": hits, "source": "typesense"}
+    except Exception as e:
+        return {"hits": [], "source": "fallback", "error": str(e)}
+
+# -------------------------------------------------
+# PUBLIC ARTICLES (liste + détail)
+# -------------------------------------------------
+@app.get("/api/articles")
+def list_public_articles(
+    q: str = "",
+    category: Optional[str] = None,
+    tag: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+    db: Session = Depends(get_db)
+):
+    if (q or "").strip():
+        ensure_collection()
+        filters = {}
+        if category: filters["category"] = [category]
+        if tag: filters["tags"] = [tag]
+        res = ts_search(q, filters, limit)
+        hits = []
+        for h in res.get("hits", []):
+            doc = h.get("document", {})
+            hits.append({
+                "slug": doc.get("slug"),
+                "title": doc.get("title"),
+                "category": doc.get("category"),
+                "tags": doc.get("tags", []),
+                "snippet": (doc.get("content") or "")[:200] + "...",
+            })
+        return {"items": hits, "total": res.get("found", len(hits)), "source": "typesense"}
+
+    qset = db.query(models.Article)
+    if category:
+        from sqlalchemy.orm import joinedload
+        qset = qset.options(joinedload(models.Article.category)).filter(models.Category.slug == category)
+    if tag:
+        qset = qset.join(models.Article.tags).filter(models.Tag.name == tag)
+    total = qset.count()
+    rows = qset.order_by(models.Article.updated_at.desc()).offset(offset).limit(limit).all()
+    items = [{"slug": a.slug, "title": a.title, "category": a.category.slug if a.category else None,
+              "tags": [t.name for t in a.tags]} for a in rows]
+    return {"items": items, "total": total, "source": "sql"}
+
+@app.get("/api/articles/{slug}")
+def get_article(slug: str, db: Session = Depends(get_db)):
+    article = db.query(models.Article).filter(models.Article.slug == slug).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article non trouvé")
+    return {
+        "id": article.id,
+        "slug": article.slug,
+        "title": article.title,
+        "content": article.content or "",
+        "category": article.category.slug if article.category else None,
+        "tags": [t.name for t in article.tags],
+        "created_at": article.created_at.isoformat() if article.created_at else None,
+        "updated_at": article.updated_at.isoformat() if article.updated_at else None,
+    }
+
+# -------------------------------------------------
+# ADMIN (X-Admin-Token OU JWT role editor/admin)
+# -------------------------------------------------
+@app.get("/api/admin/articles", dependencies=[Depends(admin_required)])
+def admin_list_articles(db: Session = Depends(get_db), limit: int = 100):
+    rows = db.execute(select(models.Article).limit(limit)).scalars().all()
+    out = []
+    for a in rows:
+        out.append({
+            "id": a.id, "slug": a.slug, "title": a.title,
+            "category": a.category.slug if a.category else None,
+            "tags": [t.name for t in a.tags],
+            "updated_at": a.updated_at.isoformat() if a.updated_at else ""
+        })
+    return out
+
+@app.post("/api/admin/articles", dependencies=[Depends(admin_required)])
+def admin_create_article(payload: schemas.ArticleIn, db: Session = Depends(get_db)):
+    from .crud import get_category_by_slug, get_user_by_username, get_tag_by_name
+    cat = get_category_by_slug(db, payload.category_slug) if payload.category_slug else None
+    author = get_user_by_username(db, payload.author_username) if payload.author_username else None
+    art = models.Article(
+        slug=payload.slug, title=payload.title, content=payload.content or "",
+        category=cat, author=author, links_json=payload.links or []
+    )
+    db.add(art); db.flush()
+
+    tag_objs = []
+    for t in payload.tags or []:
+        obj = get_tag_by_name(db, t)
+        if not obj:
+            obj = models.Tag(name=t); db.add(obj); db.flush()
+        tag_objs.append(obj)
+    art.tags = tag_objs
+    db.commit(); db.refresh(art)
+
+    ensure_collection()
+    doc = {
+        "id": str(art.id), "slug": art.slug, "title": art.title,
+        "content": art.content or "",
+        "category": art.category.slug if art.category else "",
+        "tags": [t.name for t in art.tags],
+        "created_at": int(art.created_at.replace(tzinfo=timezone.utc).timestamp()) if art.created_at else 0,
+        "updated_at": int(art.updated_at.replace(tzinfo=timezone.utc).timestamp()) if art.updated_at else 0,
+    }
+    upsert_document(doc)
+    return {"ok": True, "id": art.id, "slug": art.slug}
+
+@app.put("/api/admin/articles/{id}", dependencies=[Depends(admin_required)])
+def admin_update_article(id: int, payload: schemas.ArticlePatch, db: Session = Depends(get_db)):
+    from .crud import get_category_by_slug, get_user_by_username, get_tag_by_name
+    art = db.get(models.Article, id)
+    if not art:
+        raise HTTPException(404, "Article introuvable")
+
+    if payload.slug is not None: art.slug = payload.slug
+    if payload.title is not None: art.title = payload.title
+    if payload.content is not None: art.content = payload.content
+    if payload.category_slug is not None: art.category = get_category_by_slug(db, payload.category_slug)
+    if payload.author_username is not None: art.author = get_user_by_username(db, payload.author_username)
+    if payload.tags is not None:
+        tag_objs = []
+        for t in payload.tags:
+            obj = get_tag_by_name(db, t)
+            if not obj:
+                obj = models.Tag(name=t); db.add(obj); db.flush()
+            tag_objs.append(obj)
+        art.tags = tag_objs
+    if payload.links is not None: art.links_json = payload.links
+
+    db.commit(); db.refresh(art)
+
+    ensure_collection()
+    doc = {
+        "id": str(art.id), "slug": art.slug, "title": art.title,
+        "content": art.content or "",
+        "category": art.category.slug if art.category else "",
+        "tags": [t.name for t in art.tags],
+        "created_at": int(art.created_at.timestamp()) if art.created_at else 0,
+        "updated_at": int(art.updated_at.timestamp()) if art.updated_at else 0,
+    }
+    upsert_document(doc)
+    return {"ok": True}
+
+@app.delete("/api/admin/articles/{id}", dependencies=[Depends(admin_required)])
+def admin_delete_article(id: int, db: Session = Depends(get_db)):
+    art = db.get(models.Article, id)
+    if not art:
+        return {"ok": True}
+    db.delete(art); db.commit()
+    delete_document(str(id))
+    return {"ok": True}
+
+# --- Catégories (rubriques) ---
+@app.get("/api/admin/categories", dependencies=[Depends(role_required("admin"))])
+def list_categories(db: Session = Depends(get_db)):
+    rows = db.query(models.Category).order_by(models.Category.name.asc()).all()
+    return [{"id": c.id, "name": c.name, "slug": c.slug} for c in rows]
+
+@app.post("/api/admin/categories", dependencies=[Depends(admin_required)])
+def create_category(payload: schemas.CategoryIn, db: Session = Depends(get_db)):
+    c = models.Category(name=payload.name, slug=payload.slug)
+    db.add(c); db.commit(); db.refresh(c)
+    return {"ok": True, "id": c.id}
+
+@app.put("/api/admin/categories/{id}", dependencies=[Depends(role_required("admin"))])
+def update_category(id: int, payload: schemas.CategoryIn, db: Session = Depends(get_db)):
+    c = db.get(models.Category, id)
+    if not c: raise HTTPException(404, "Catégorie introuvable")
+    c.name = payload.name; c.slug = payload.slug
+    db.commit(); db.refresh(c)
+    return {"ok": True}
+
+@app.delete("/api/admin/categories/{id}", dependencies=[Depends(role_required("admin"))])
+def delete_category(id: int, db: Session = Depends(get_db)):
+    c = db.get(models.Category, id)
+    if not c: return {"ok": True}
+    db.delete(c); db.commit()
+    return {"ok": True}
+
+@app.post("/api/auth/login")
+def login(body: dict = Body(...), db: Session = Depends(get_db)):
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    user = db.execute(select(models.User).where(models.User.username == username)).scalar_one_or_none()
+    if not user or not user.password_hash or not verify_password(password, user.password_hash):
+        raise HTTPException(401, "Identifiants invalides")
+    token = create_access_token(sub=user.username, role=user.role)
+    return {"access_token": token, "token_type": "bearer", "user": {"username": user.username, "role": user.role}}
+
+@app.get("/api/auth/me", dependencies=[Depends(require_editor)])
+def me(current=Depends(require_editor)):
+    return {"username": current.username, "role": current.role}
