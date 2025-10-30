@@ -1,0 +1,855 @@
+// ===============================
+// Au SAURcours ! - app.js (DOM de index.html fourni)
+// ===============================
+// Utilise une URL relative pour éviter les problèmes de CORS
+const API = window.location.hostname === 'localhost' ? 'http://localhost:8000/api' : '/api';
+
+// Éléments DOM
+const q = document.getElementById("q");
+const btn = document.getElementById("btn");
+const suggest = document.getElementById("suggest");
+const artTitle = document.getElementById("art-title");
+const artMeta = document.getElementById("art-meta");
+const artContent = document.getElementById("art-content");
+const breadcrumbs = document.getElementById("breadcrumbs");
+const editBtn = document.getElementById("editBtn");
+const infoBtn = document.getElementById("infoBtn");
+const adminToggle = document.getElementById("adminToggle");
+const logoutBtnMain = document.getElementById("logoutBtnMain");
+const newBtn = document.getElementById("newBtn");
+const createPanel = document.getElementById("create-panel");
+const editPanel = document.getElementById("edit-panel");
+
+let currentArticle = null;
+let lastHits = [];
+let debounceId = null;
+
+function showSuggest() { suggest.classList.remove("hidden"); }
+function hideRecent() { try { const r = document.getElementById('recent'); if (r) r.style.display = 'none'; } catch {} }
+
+// Infos article (popup léger)
+if (infoBtn) {
+  infoBtn.addEventListener('click', () => {
+    const a = currentArticle;
+    if (!a) return;
+    const modal = document.createElement('div');
+    modal.className = 'modal show';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width:700px;">
+        <h3>Infos article</h3>
+        <div class="editor">
+          <div class="row" style="grid-template-columns:1fr;">
+            <div><b>Slug</b> : ${a.slug}</div>
+            <div><b>Catégorie</b> : ${a.category || ''} (${a.category_slug||''})</div>
+            <div><b>Auteur</b> : ${a.author || '—'}</div>
+            <div><b>Créé</b> : ${a.created_at || '—'}</div>
+            <div><b>Modifié</b> : ${a.updated_at || '—'}</div>
+          </div>
+          <div style="margin-top:10px;">
+            <table style="width:100%; border-collapse:collapse;">
+              <thead>
+                <tr>
+                  <th style="text-align:left;border-bottom:1px solid var(--border);padding:6px;">Date</th>
+                  <th style="text-align:left;border-bottom:1px solid var(--border);padding:6px;">Action</th>
+                  <th style="text-align:left;border-bottom:1px solid var(--border);padding:6px;">Utilisateur</th>
+                </tr>
+              </thead>
+              <tbody id="hist-body">
+                <tr><td colspan="3" style="padding:8px;color:var(--muted);">Chargement…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="bar"><button id="info-close">Fermer</button></div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('#info-close').onclick = () => modal.remove();
+    // Afficher un indicateur de chargement
+    const tb = modal.querySelector('#hist-body');
+    tb.innerHTML = `<tr><td colspan="3" style="padding:8px;color:var(--muted);">Chargement de l'historique...</td></tr>`;
+    
+    // URL de l'API avec débogage
+    const apiUrl = `${API}/articles/slug/${a.slug}/history`;
+    console.log(`[DEBUG] Appel de l'API: ${apiUrl}`);
+    
+    // Charger l'historique avec une meilleure gestion des erreurs
+    fetch(apiUrl)
+      .then(async r => {
+        console.log(`[DEBUG] Réponse de l'API: ${r.status} ${r.statusText}`);
+        if (!r.ok) {
+          const errorText = await r.text();
+          console.error(`[ERROR] Erreur API: ${r.status} - ${errorText}`);
+          throw new Error(`Erreur ${r.status}: ${r.statusText}`);
+        }
+        return r.json();
+      })
+      .then(rows => {
+        console.log(`[DEBUG] Données reçues:`, rows);
+        if (!rows || !rows.length) { 
+          tb.innerHTML = `<tr><td colspan="3" style="padding:8px;color:var(--muted);">Aucun historique disponible</td></tr>`; 
+          return; 
+        }
+        
+        // Formater les dates pour un affichage plus lisible
+        const formatDate = (dateStr) => {
+          if (!dateStr) return '';
+          try {
+            const date = new Date(dateStr);
+            return date.toLocaleString('fr-FR');
+          } catch (e) {
+            return dateStr;
+          }
+        };
+        
+        tb.innerHTML = rows.map(it => `
+          <tr>
+            <td style="padding:6px;border-bottom:1px solid var(--border);">${formatDate(it.created_at)}</td>
+            <td style="padding:6px;border-bottom:1px solid var(--border);">${it.action || '—'}</td>
+            <td style="padding:6px;border-bottom:1px solid var(--border);">${it.user || '—'}</td>
+          </tr>
+        `).join('');
+      })
+      .catch(err => {
+        console.error('[ERROR] Erreur lors du chargement de l\'historique:', err);
+        tb.innerHTML = `
+          <tr>
+            <td colspan="3" style="padding:8px;color:#b00020;">
+              Erreur lors du chargement de l'historique<br>
+              <small>${err.message || 'Détails non disponibles'}</small>
+            </td>
+          </tr>`;
+      });
+  });
+}
+
+// Fonctions d'administration
+function getCurrentUser() {
+  try { return JSON.parse(localStorage.getItem('user') || 'null'); }
+  catch { return null; }
+}
+
+// Fonction pour charger la liste des articles
+async function loadAdminArticles() {
+  try {
+    const response = await fetch(`${API}/articles/`);
+    if (!response.ok) throw new Error('Erreur lors du chargement des articles');
+    const articles = await response.json();
+    
+    const tbody = document.getElementById('admin-articles-body');
+    if (!tbody) return;
+    
+    if (!articles || articles.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center">Aucun article trouvé</td></tr>';
+      return;
+    }
+    
+    tbody.innerHTML = articles.map(article => `
+      <tr>
+        <td>${article.id}</td>
+        <td>${escapeHtml(article.title)}</td>
+        <td>${article.category || 'Aucune'}</td>
+        <td>${new Date(article.created_at * 1000).toLocaleDateString('fr-FR')}</td>
+        <td class="text-right">
+          <button class="btn btn-sm btn-outline-primary edit-article" data-id="${article.id}">
+            <i class="fas fa-edit"></i>
+          </button>
+          <button class="btn btn-sm btn-outline-danger delete-article" data-id="${article.id}" data-title="${escapeHtml(article.title)}">
+            <i class="fas fa-trash"></i>
+          </button>
+        </td>
+      </tr>
+    `).join('');
+    
+    // Ajouter les gestionnaires d'événements pour les boutons
+    document.querySelectorAll('.delete-article').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = e.target.closest('button').dataset.id;
+        const title = e.target.closest('button').dataset.title;
+        if (confirm(`Êtes-vous sûr de vouloir supprimer l'article "${title}" ?`)) {
+          deleteArticle(id);
+        }
+      });
+    });
+    
+    document.querySelectorAll('.edit-article').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = e.target.closest('button').dataset.id;
+        openArticle(id, true); // Ouvrir en mode édition
+      });
+    });
+    
+  } catch (error) {
+    console.error('Erreur:', error);
+    const tbody = document.getElementById('admin-articles-body');
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="5" class="text-danger">Erreur: ${error.message}</td></tr>`;
+    }
+  }
+}
+
+// Fonction pour supprimer un article
+async function deleteArticle(articleId) {
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API}/articles/${articleId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Erreur lors de la suppression');
+    }
+    
+    // Recharger la liste des articles
+    await loadAdminArticles();
+    
+    // Afficher un message de succès
+    const alert = document.createElement('div');
+    alert.className = 'alert alert-success alert-dismissible fade show';
+    alert.role = 'alert';
+    alert.innerHTML = `
+      Article supprimé avec succès
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    
+    const container = document.querySelector('.admin-container');
+    if (container) {
+      container.prepend(alert);
+      // Supprimer l'alerte après 5 secondes
+      setTimeout(() => alert.remove(), 5000);
+    }
+    
+  } catch (error) {
+    console.error('Erreur lors de la suppression:', error);
+    alert(`Erreur: ${error.message}`);
+  }
+}
+
+// Gestionnaire pour le bouton d'administration
+if (adminToggle) {
+  const u = getCurrentUser();
+  const isAdmin = !!(u && (u.role === 'admin' || u?.is_admin === true || (Array.isArray(u.roles) && u.roles.includes('admin'))));
+  adminToggle.disabled = !isAdmin;
+  adminToggle.title = isAdmin ? 'Accès backoffice' : 'Réservé aux administrateurs';
+  
+  if (isAdmin) {
+    adminToggle.addEventListener('click', () => {
+      // Afficher le panneau d'administration
+      const adminPanel = document.getElementById('admin-panel');
+      if (adminPanel) {
+        adminPanel.classList.toggle('d-none');
+        
+        // Si on affiche le panneau, on charge les articles
+        if (!adminPanel.classList.contains('d-none')) {
+          loadAdminArticles();
+        }
+      }
+    });
+  }
+  adminToggle.checked = false;
+  adminToggle.addEventListener('change', (e) => {
+    if (e.target.checked) {
+      if (isAdmin) {
+        location.href = '/admin.html';
+      } else {
+        e.target.checked = false;
+        alert('Accès backoffice réservé aux administrateurs.');
+      }
+    }
+  });
+}
+// Déconnexion (page principale)
+if (logoutBtnMain) {
+  logoutBtnMain.addEventListener('click', () => {
+    try {
+      localStorage.removeItem('jwt');
+      localStorage.removeItem('user');
+    } catch {}
+    location.href = '/login.html';
+  });
+}
+function hideSuggest() { suggest.classList.add("hidden"); suggest.innerHTML = ""; }
+
+async function search(query) {
+  if (!query || query.trim().length < 2) {
+    hideSuggest();
+    return;
+  }
+  suggest.innerHTML = `<div class="suggest-item muted">⏳ Recherche…</div>`;
+  showSuggest();
+  try {
+    let data = null;
+    let r = await fetch(`${API}/search?q=${encodeURIComponent(query.trim())}`);
+    if (!r.ok) {
+      // Fallback: récupérer tous les articles et filtrer côté client
+      const all = await fetch(`${API}/articles`);
+      if (!all.ok) throw new Error(`HTTP ${r.status}`);
+      const items = await all.json();
+      const ql = query.trim().toLowerCase();
+      lastHits = items.filter(a => (
+        (a.title||'').toLowerCase().includes(ql) || (a.content||'').toLowerCase().includes(ql)
+      )).slice(0, 20).map(a => ({
+        slug: a.slug,
+        title: a.title,
+        snippet: (a.content||'').slice(0,160),
+        category: a.category,
+        tags: a.tags||[]
+      }));
+    } else {
+      data = await r.json();
+      lastHits = data?.hits || [];
+    }
+    if (!lastHits.length) {
+      suggest.innerHTML = `<div class="suggest-item muted">Aucun résultat pour « ${escapeHtml(query)} »</div>`;
+      return;
+    }
+    suggest.innerHTML = lastHits.map(h => {
+      const tags = (h.tags || []).map(t => `#${t}`).join(" ");
+      return `
+        <div class="suggest-item" data-slug="${h.slug}">
+          <div class="si-title">${escapeHtml(h.title)}</div>
+          <div class="si-meta">${h.category || "—"} · ${escapeHtml(tags)}</div>
+          <div class="si-snippet">${escapeHtml((h.snippet || "").slice(0,160))}</div>
+        </div>
+      `;
+    }).join("");
+  } catch (e) {
+    suggest.innerHTML = `<div class="suggest-item error">⚠️ Erreur de recherche : ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function openArticle(slug) {
+  const r = await fetch(`${API}/articles/slug/${slug}`);
+  const a = await r.json();
+  hideRecent();
+  artTitle.textContent = a.title;
+  artMeta.innerHTML = `${a.category} • ${a.tags.join(', ')} • par ${a.author}`;
+  artContent.innerHTML = a.content;
+  console.log('[edit] handler attach', { id: a.id, slug: a.slug, hasBtn: !!editBtn });
+  currentArticle = a;
+  editBtn.onclick = () => {
+    console.log('[edit] click', { id: a.id, slug: a.slug });
+    try { hideSuggest(); } catch {}
+    // Remplir le panneau d'édition inline
+    if (editPanel) {
+      editPanel.style.display = 'block';
+      const t = document.getElementById('ed2-title');
+      const s = document.getElementById('ed2-slug');
+      const c = document.getElementById('ed2-category');
+      const tg = document.getElementById('ed2-tags');
+      const ta = document.getElementById('ed2-content');
+      if (t) t.value = a.title || '';
+      if (s) s.value = a.slug || '';
+      if (c) c.value = a.category_slug || '';
+      if (tg) tg.value = (a.tags||[]).join(', ');
+      if (ta) ta.value = a.content || '';
+      // auto-slug si l'utilisateur change le titre
+      t?.addEventListener('input', () => {
+        if (!s) return;
+        if (!s.dataset.touched || s.value.length < 3) {
+          const slug = (t.value||'').toLowerCase()
+            .normalize('NFD').replace(/\p{Diacritic}/gu,'')
+            .replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
+          s.value = slug;
+        }
+      });
+      s?.addEventListener('input', () => { if (s) s.dataset.touched = '1'; });
+      // boutons
+      const cancel = document.getElementById('ed2-cancel');
+      const save = document.getElementById('ed2-save');
+      cancel.onclick = () => { editPanel.style.display = 'none'; };
+      save.onclick = async () => {
+        const title = (t?.value||'').trim();
+        const slug = (s?.value||'').trim();
+        const category_slug = (c?.value||'').trim() || null;
+        const tags = (tg?.value||'').split(',').map(x=>x.trim()).filter(Boolean);
+        const content = ta?.value||'';
+        if (!title || !slug) { alert('Titre et slug sont requis'); return; }
+        const jwt = localStorage.getItem('jwt');
+        try {
+          const res = await fetch(`${API}/articles/${a.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...(jwt?{Authorization:`Bearer ${jwt}`}:{}) },
+            body: JSON.stringify({ title, slug, category_slug, tags, content })
+          });
+          if (!res.ok) throw new Error(await res.text());
+          await res.json();
+          editPanel.style.display = 'none';
+          openArticle(slug);
+        } catch(e) { alert('Erreur sauvegarde: ' + e.message); }
+      };
+    } else {
+      // Fallback: modal riche (non utilisé par défaut)
+      openRichEditor(a);
+    }
+  };
+  editBtn.disabled = false;
+  mermaid.run();
+}
+
+function openCreateArticle() {
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  console.log('[edit] open modal');
+  modal.innerHTML = `
+    <div class="modal-content" style="width:90%;max-width:860px;">
+      <h3>Nouveau contenu</h3>
+      <div class="editor">
+        <div class="row">
+          <input id="na-title" placeholder="Titre"/>
+          <input id="na-slug" placeholder="Slug (ex: mon-article)"/>
+          <input id="na-category" placeholder="Catégorie (slug)"/>
+        </div>
+        <div class="row">
+          <input id="na-tags" placeholder="Tags (séparés par des virgules)"/>
+        </div>
+        <textarea id="na-content" style="min-height:240px" placeholder="Contenu (HTML ou texte)"></textarea>
+      </div>
+      <div class="bar">
+        <button id="na-save">Créer</button>
+        <button id="na-cancel">Annuler</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.classList.add('show');
+
+  modal.querySelector('#na-cancel').onclick = () => modal.remove();
+  modal.querySelector('#na-save').onclick = async () => {
+    const title = modal.querySelector('#na-title').value.trim();
+    const slug = modal.querySelector('#na-slug').value.trim();
+    const category_slug = modal.querySelector('#na-category').value.trim() || null;
+    const tags = (modal.querySelector('#na-tags').value || '')
+      .split(',').map(s => s.trim()).filter(Boolean);
+    // Récupérer le contenu de TinyMCE
+    const content = tinymce.get('na-content').getContent();
+    if (!title || !slug) { alert('Titre et slug sont requis.'); return; }
+    const jwt = localStorage.getItem('jwt');
+    try {
+      const res = await fetch(`${API}/articles/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(jwt ? { 'Authorization': 'Bearer ' + jwt } : {})
+        },
+        body: JSON.stringify({ title, slug, category_slug, tags, content })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await res.json();
+      modal.remove();
+      openArticle(slug);
+    } catch (e) {
+      alert('Erreur création: ' + e.message);
+    }
+  };
+}
+
+function openRichEditor(article) {
+  // Créer le conteneur principal
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  modal.style.display = 'flex';
+  modal.style.position = 'fixed';
+  modal.style.top = '0';
+  modal.style.left = '0';
+  modal.style.right = '0';
+  modal.style.bottom = '0';
+  modal.style.backgroundColor = 'rgba(0,0,0,0.5)';
+  modal.style.zIndex = '1000';
+  modal.style.justifyContent = 'center';
+  modal.style.alignItems = 'center';
+  
+  // Contenu de la modale
+  modal.innerHTML = `
+    <div style="width:95%;max-width:1000px;background:white;border-radius:8px;padding:20px;max-height:90vh;overflow-y:auto;">
+      <h3 style="margin-top:0;color:#1a2b4a;">Éditer l'article</h3>
+      <div style="margin-bottom:20px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
+          <div>
+            <label style="display:block;margin-bottom:5px;font-weight:500;">Titre</label>
+            <input id="ed-title" value="${(article.title||'').replace(/"/g,'&quot;')}" 
+                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;" />
+          </div>
+          <div>
+            <label style="display:block;margin-bottom:5px;font-weight:500;">Slug</label>
+            <input id="ed-slug" value="${(article.slug||'').replace(/"/g,'&quot;')}" 
+                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;" />
+          </div>
+          <div>
+            <label style="display:block;margin-bottom:5px;font-weight:500;">Catégorie</label>
+            <input id="ed-category" value="${(article.category||'').replace(/"/g,'&quot;')}" 
+                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;" />
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:15px;">
+          <div>
+            <label style="display:block;margin-bottom:5px;font-weight:500;">Tags (séparés par des virgules)</label>
+            <input id="ed-tags" value="${(article.tags||[]).join(', ')}" 
+                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;" />
+          </div>
+          <div></div>
+        </div>
+        
+        <!-- Conteneur de l'éditeur TinyMCE -->
+        <div style="margin-bottom:20px;">
+          <textarea id="ed-content" style="min-height:400px;">${article.content || ''}</textarea>
+        </div>
+      </div>
+      
+      <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:15px;border-top:1px solid #eee;">
+        <button id="ed-cancel" style="padding:8px 16px;background:#f0f2f5;border:1px solid #d1d5db;border-radius:4px;cursor:pointer;">
+          Annuler
+        </button>
+        <button id="ed-save" style="padding:8px 20px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;">
+          Enregistrer
+        </button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  // Initialiser TinyMCE sur l'éditeur (version 6.x)
+  tinymce.init({
+    selector: '#ed-content',
+    height: 500,
+    menubar: true,
+    plugins: [
+      'advlist', 'autolink', 'lists', 'link', 'image', 'charmap', 'preview', 'anchor',
+      'searchreplace', 'visualblocks', 'code', 'fullscreen',
+      'insertdatetime', 'media', 'table', 'code', 'help', 'wordcount'
+    ],
+    toolbar: 'undo redo | blocks | ' +
+      'bold italic backcolor | alignleft aligncenter ' +
+      'alignright alignjustify | bullist numlist outdent indent | ' +
+      'removeformat | help | image | code | table',
+    content_style: 'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 1.6; }',
+    // Configuration pour l'upload d'images
+    images_upload_url: '/api/upload-image',
+    images_upload_credentials: true,
+    // Désactiver la conversion automatique des URLs
+    convert_urls: false,
+    // Options spécifiques à la version 6
+    promotion: false,
+    browser_spellcheck: true,
+    contextmenu: false
+  });
+  
+  // Gestionnaire d'événements pour le bouton Annuler
+  document.getElementById('ed-cancel').onclick = () => {
+    // Détruire l'instance TinyMCE
+    tinymce.get('ed-content').destroy();
+    modal.remove();
+  };
+  
+  // Gestionnaire d'événements pour le bouton Enregistrer
+  document.getElementById('ed-save').onclick = async () => {
+    const title = document.getElementById('ed-title').value.trim();
+    const slug = document.getElementById('ed-slug').value.trim();
+    const category = document.getElementById('ed-category').value.trim();
+    const tags = (document.getElementById('ed-tags').value || '')
+      .split(',').map(s => s.trim()).filter(Boolean);
+    
+    // Récupérer le contenu de TinyMCE
+    const content = tinymce.get('ed-content').getContent();
+    
+    if (!title || !slug) {
+      alert('Le titre et le slug sont obligatoires');
+      return;
+    }
+    
+    const jwt = localStorage.getItem('jwt');
+    try {
+      const res = await fetch(`${API}/articles/${article.slug}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(jwt ? { 'Authorization': 'Bearer ' + jwt } : {})
+        },
+        body: JSON.stringify({
+          title,
+          slug,
+          category_slug: category || null,
+          tags,
+          content
+        })
+      });
+      
+      if (!res.ok) throw new Error(await res.text());
+      
+      // Recharger l'article mis à jour
+      tinymce.get('ed-content').destroy();
+      modal.remove();
+      openArticle(slug);
+    } catch (e) {
+      alert('Erreur lors de la mise à jour de l\'article : ' + e.message);
+    }
+  };
+  
+  // Si c'est une édition, on charge le contenu existant
+  if (article.content) {
+    // Le contenu est déjà chargé dans le textarea, TinyMCE le récupère automatiquement
+    console.log('Contenu de l\'article chargé dans TinyMCE');
+  }
+  
+  // La gestion des images est maintenant gérée directement par TinyMCE via le plugin image
+  // qui utilise l'endpoint /api/upload-image configuré dans l'initialisation
+  
+  // Gestionnaire pour fermer la modale avec la touche Échap
+  const handleKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      tinymce.get('ed-content').destroy();
+      modal.remove();
+      document.removeEventListener('keydown', handleKeyDown);
+    }
+  };
+  
+  document.addEventListener('keydown', handleKeyDown);
+  
+  // Gestionnaire pour le bouton Annuler
+  modal.querySelector('#ed-cancel').addEventListener('click', () => {
+    tinymce.get('ed-content').destroy();
+    modal.remove();
+  });
+  
+  // Fermer la modale en cliquant en dehors
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      tinymce.get('ed-content').destroy();
+      modal.remove();
+    }
+  });
+  
+  // Gestionnaire pour le bouton Enregistrer
+  modal.querySelector('#ed-save').onclick = async () => {
+    const title = document.getElementById('ed-title').value.trim();
+    const slug = document.getElementById('ed-slug').value.trim();
+    const category = document.getElementById('ed-category').value.trim();
+    const tags = (document.getElementById('ed-tags').value || '')
+      .split(',').map(s => s.trim()).filter(Boolean);
+    
+    // Récupérer le contenu de TinyMCE
+    const content = tinymce.get('ed-content').getContent();
+    
+    if (!title || !slug) {
+      alert('Le titre et le slug sont obligatoires');
+      return;
+    }
+    
+    const jwt = localStorage.getItem('jwt');
+    try {
+      const res = await fetch(`${API}/articles/${article.slug}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(jwt ? { 'Authorization': 'Bearer ' + jwt } : {})
+        },
+        body: JSON.stringify({
+          title,
+          slug,
+          category_slug: category || null,
+          tags,
+          content
+        })
+      });
+      
+      if (!res.ok) throw new Error(await res.text());
+      
+      // Recharger l'article mis à jour
+      tinymce.get('ed-content').destroy();
+      modal.remove();
+      openArticle(slug);
+    } catch (e) {
+      alert('Erreur lors de la mise à jour de l\'article : ' + e.message);
+    } finally {
+      // Réactiver le bouton dans tous les cas
+      const saveBtn = document.getElementById('ed-save');
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Enregistrer';
+      }
+    }
+}
+
+// Fonction utilitaire pour afficher des notifications
+function showNotification(message, type = 'info') {
+  const toast = document.createElement('div');
+  toast.className = `toast-notification ${type}`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  
+  // Animation d'apparition
+  setTimeout(() => toast.classList.add('show'), 10);
+  
+  // Disparaît après 5 secondes
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 300);
+  }, 5000);
+}
+
+// Helpers
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function renderContent(txt) {
+  // rendu simple: paragraphs (tu pourras brancher un renderer Markdown plus tard)
+  return txt
+    .split(/\n{2,}/).map(p => `<p>${escapeHtml(p).replace(/\n/g, "<br/>")}</p>`).join("\n");
+}
+
+// Events
+q.addEventListener("input", () => {
+  clearTimeout(debounceId);
+  debounceId = setTimeout(() => search(q.value), 180);
+});
+btn.addEventListener("click", () => search(q.value));
+
+// Nouveau
+if (newBtn) {
+  newBtn.addEventListener('click', () => {
+    const u = getCurrentUser();
+    if (!u) { alert('Veuillez vous reconnecter.'); location.href = '/login.html'; return; }
+    if (createPanel) {
+      createPanel.style.display = createPanel.style.display === 'none' ? 'block' : 'none';
+      if (createPanel.style.display === 'block') {
+        const t = document.getElementById('na-title');
+        const s = document.getElementById('na-slug');
+        t?.addEventListener('input', () => {
+          const slug = (t.value || '')
+            .toLowerCase()
+            .normalize('NFD').replace(/\p{Diacritic}/gu,'')
+            .replace(/[^a-z0-9]+/g,'-')
+            .replace(/(^-|-$)/g,'');
+          if (s && (!s.value || s.value.length < 3)) s.value = slug;
+        });
+        document.getElementById('na-cancel').onclick = () => { createPanel.style.display = 'none'; };
+        document.getElementById('na-save').onclick = async () => {
+          const title = (document.getElementById('na-title').value||'').trim();
+          let slug = (document.getElementById('na-slug').value||'').trim();
+          const cat = (document.getElementById('na-category').value||'').trim();
+          const sub = (document.getElementById('na-subcategory').value||'').trim();
+          const category_slug = (cat && sub) ? `${cat}/${sub}` : (cat || null);
+          const tags = (document.getElementById('na-tags').value||'')
+            .split(',').map(s=>s.trim()).filter(Boolean);
+          const content = document.getElementById('na-content').value;
+          if (!title) { alert('Titre requis'); return; }
+          if (!slug) {
+            slug = title.toLowerCase()
+              .normalize('NFD').replace(/\p{Diacritic}/gu,'')
+              .replace(/[^a-z0-9]+/g,'-')
+              .replace(/(^-|-$)/g,'');
+          }
+          const jwt = localStorage.getItem('jwt');
+          try {
+            const res = await fetch(`${API}/articles/`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...(jwt?{Authorization:`Bearer ${jwt}`}:{}) },
+              body: JSON.stringify({ title, slug, category_slug, tags, content })
+            });
+            if (!res.ok) throw new Error(await res.text());
+            await res.json();
+            createPanel.style.display = 'none';
+            openArticle(slug);
+          } catch(e) { alert('Erreur création: ' + e.message); }
+        };
+      }
+    } else {
+      openCreateArticle();
+    }
+  });
+}
+
+// clic sur un résultat
+suggest.addEventListener("click", (e) => {
+  const item = e.target.closest(".suggest-item[data-slug]");
+  if (item) {
+    openArticle(item.dataset.slug);
+    hideSuggest();
+    hideRecent();
+    try { q.blur(); } catch {}
+  }
+});
+
+// clavier: Enter ouvre le 1er résultat, Échap ferme
+q.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    if (lastHits.length) {
+      openArticle(lastHits[0].slug);
+      hideSuggest();
+      hideRecent();
+      try { q.blur(); } catch {}
+    }
+  } else if (e.key === "Escape") {
+    hideSuggest(); q.blur();
+  }
+});
+
+// fermeture du panneau quand on clique ailleurs
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".searchbar") && !e.target.closest("#suggest")) hideSuggest();
+});
+
+// petit test au chargement pour afficher l’état API
+window.addEventListener("load", async () => {
+  try {
+    const r = await fetch(`${API}/health`);
+    const j = await r.json();
+    if (!j.ok) console.warn("API non OK", j);
+  } catch {
+    console.warn("API inaccessible");
+  }
+  // Charger les articles récents
+  loadRecentArticles();
+});
+
+// Fonction pour charger les articles récents
+async function loadRecentArticles() {
+  try {
+    const response = await fetch(`${API}/articles/recent`);
+    if (!response.ok) throw new Error('Erreur réseau');
+    
+    const articles = await response.json();
+    const recentList = document.getElementById('recent-list');
+    
+    if (recentList && Array.isArray(articles)) {
+      recentList.innerHTML = articles.slice(0, 10).map(article => `
+        <a class="recent-item" data-slug="${article.slug}">
+          <div class="ri-title">${escapeHtml(article.title)}</div>
+          <div class="ri-meta">
+            ${article.category || '—'} · 
+            ${escapeHtml((article.tags || []).map(t => `#${t}`).join(' '))} · 
+            ${article.updated_at || ''}
+          </div>
+        </a>
+      `).join('');
+      
+      // Ajouter le gestionnaire d'événements pour les clics sur les articles récents
+      recentList.addEventListener('click', (e) => {
+        const el = e.target.closest('.recent-item[data-slug]');
+        if (el) { 
+          openArticle(el.dataset.slug); 
+          hideSuggest(); 
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Erreur lors du chargement des articles récents:', error);
+  }
+}
+
+// Initialisation au chargement de la page
+document.addEventListener('DOMContentLoaded', function() {
+  // Vérifier si l'utilisateur est connecté
+  const user = getCurrentUser();
+  if (user) {
+    console.log('Utilisateur connecté:', user.username);
+  }
+  
+  // Charger les articles récents
+  loadRecentArticles();
+});

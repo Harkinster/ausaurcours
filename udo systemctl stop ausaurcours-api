@@ -1,0 +1,100 @@
+Oct 23 22:10:15 harkserv.ddns.net uvicorn[352999]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Oct 23 22:10:15 harkserv.ddns.net uvicorn[352999]:   File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+Oct 23 22:10:15 harkserv.ddns.net uvicorn[352999]:   File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+Oct 23 22:10:15 harkserv.ddns.net uvicorn[352999]:   File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+Oct 23 22:10:15 harkserv.ddns.net uvicorn[352999]:   File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+Oct 23 22:10:15 harkserv.ddns.net uvicorn[352999]:   File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+Oct 23 22:10:15 harkserv.ddns.net uvicorn[352999]:   File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+Oct 23 22:10:15 harkserv.ddns.net uvicorn[352999]:   File "/srv/ausaurcours-api/app/main.py", line 11, in <module>
+Oct 23 22:10:15 harkserv.ddns.net uvicorn[352999]:     from .auth import (
+Oct 23 22:10:15 harkserv.ddns.net uvicorn[352999]: ImportError: cannot import name 'admin_required' from 'app.auth' (/srv/ausaurcours-api/app/auth.py)
+Oct 23 22:10:20 harkserv.ddns.net uvicorn[352725]: INFO:     Waiting for child process [352998]
+Oct 23 22:10:20 harkserv.ddns.net uvicorn[352725]: INFO:     Child process [352998] died
+Oct 23 22:10:20 harkserv.ddns.net uvicorn[352725]: INFO:     Waiting for child process [352999]
+Oct 23 22:10:20 harkserv.ddns.net uvicorn[352725]: INFO:     Child process [352999] died
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]: Process SpawnProcess-23:
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]: Traceback (most recent call last):
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:     self.run()
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:     self._target(*self._args, **self._kwargs)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "/srv/ausaurcours-api/.venv/lib/python3.12/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:     target(sockets=sockets)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "/srv/ausaurcours-api/.venv/lib/python3.12/site-packages/uvicorn/supervisors/multiprocess.py", line 63, in target
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:     return self.real_target(sockets)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "/srv/ausaurcours-api/.venv/lib/python3.12/site-packages/uvicorn/server.py", line 65, in run
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:     return asyncio.run(self.serve(sockets=sockets))
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:     return runner.run(main)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:            ^^^^^^^^^^^^^^^^
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:     return self._loop.run_until_complete(task)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "/srv/ausaurcours-api/.venv/lib/python3.12/site-packages/uvicorn/server.py", line 69, in serve
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:     await self._serve(sockets)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "/srv/ausaurcours-api/.venv/lib/python3.12/site-packages/uvicorn/server.py", line 76, in _serve
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:     config.load()
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "/srv/ausaurcours-api/.venv/lib/python3.12/site-packages/uvicorn/config.py", line 434, in load
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:     self.loaded_app = import_from_string(self.app)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "/srv/ausaurcours-api/.venv/lib/python3.12/site-packages/uvicorn/importer.py", line 19, in import_from_string
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:     module = importlib.import_module(module_str)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "/usr/lib/python3.12/importlib/__init__.py", line 90, in import_module
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:     return _bootstrap._gcd_import(name[level:], package, level)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:   File "/srv/ausaurcours-api/app/main.py", line 11, in <module>
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]:     from .auth import (
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353023]: ImportError: cannot import name 'admin_required' from 'app.auth' (/srv/ausaurcours-api/app/auth.py)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]: Process SpawnProcess-24:
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]: Traceback (most recent call last):
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:     self.run()
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:     self._target(*self._args, **self._kwargs)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "/srv/ausaurcours-api/.venv/lib/python3.12/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:     target(sockets=sockets)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "/srv/ausaurcours-api/.venv/lib/python3.12/site-packages/uvicorn/supervisors/multiprocess.py", line 63, in target
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:     return self.real_target(sockets)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "/srv/ausaurcours-api/.venv/lib/python3.12/site-packages/uvicorn/server.py", line 65, in run
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:     return asyncio.run(self.serve(sockets=sockets))
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:     return runner.run(main)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:            ^^^^^^^^^^^^^^^^
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:     return self._loop.run_until_complete(task)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "/srv/ausaurcours-api/.venv/lib/python3.12/site-packages/uvicorn/server.py", line 69, in serve
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:     await self._serve(sockets)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "/srv/ausaurcours-api/.venv/lib/python3.12/site-packages/uvicorn/server.py", line 76, in _serve
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:     config.load()
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "/srv/ausaurcours-api/.venv/lib/python3.12/site-packages/uvicorn/config.py", line 434, in load
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:     self.loaded_app = import_from_string(self.app)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "/srv/ausaurcours-api/.venv/lib/python3.12/site-packages/uvicorn/importer.py", line 19, in import_from_string
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:     module = importlib.import_module(module_str)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "/usr/lib/python3.12/importlib/__init__.py", line 90, in import_module
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:     return _bootstrap._gcd_import(name[level:], package, level)
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:   File "/srv/ausaurcours-api/app/main.py", line 11, in <module>
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]:     from .auth import (
+Oct 23 22:10:21 harkserv.ddns.net uvicorn[353024]: ImportError: cannot import name 'admin_required' from 'app.auth' (/srv/ausaurcours-api/app/auth.py)

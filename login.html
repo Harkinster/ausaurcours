@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Se connecter — Au SAURcours</title>
+  <link rel="stylesheet" href="style.css"/>
+  <link rel="icon" href="/assets/favicon.ico" sizes="any">
+  <link rel="shortcut icon" href="/assets/favicon.ico">
+  <style>
+    :root{--bg:#f7f9fc;--panel:#ffffff;--text:#0f1220;--muted:#6b7380;--border:#e6eaf2;--brand:#2d6cdf;--brand2:#7bb3ff}
+    body{background:linear-gradient(180deg,#f9fbff,#f6f9fe);margin:0;font-family:system-ui,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;color:var(--text)}
+    .card {background:var(--panel);color:var(--text);border-radius:16px;box-shadow:0 8px 30px rgba(16,24,40,.08);border:1px solid var(--border)}
+    input,button{width:100%;padding:12px 14px;margin:8px 0;border-radius:10px}
+    input{border:1px solid var(--border);background:#fff;color:var(--text)}
+    button{cursor:pointer;background:linear-gradient(90deg,var(--brand),var(--brand2));border:0;color:#fff}
+    .muted{opacity:.8;font-size:.9rem;color:var(--muted)}
+    a{color:var(--brand)}
+  </style>
+</head>
+<body>
+  <div class="card" style="max-width:520px;margin:6rem auto;padding:24px;">
+    <h2>Se connecter</h2>
+    <p class="muted">Connectez-vous pour accéder au site. Pas de compte ? <a href="/signup.html">Créer un compte</a>.</p>
+    <form id="f">
+      <input id="e" type="email" placeholder="Email @saur.com" required>
+      <input id="p" type="password" placeholder="Mot de passe" required>
+      <button type="submit">Connexion</button>
+    </form>
+    <div id="msg" class="muted" style="margin-top:8px;"></div>
+  </div>
+
+<script>
+const API = '/api';
+async function api(path, opts={}) {
+  const r = await fetch(API + path, { headers: {'Content-Type':'application/json'}, ...opts });
+  if(!r.ok) throw new Error((await r.text())||r.statusText);
+  return r.json();
+}
+
+// Si déjà connecté, aller à l'accueil
+if (localStorage.getItem('jwt')) {
+  location.href = '/';
+}
+
+document.getElementById('f').addEventListener('submit', async (ev)=>{
+  ev.preventDefault();
+  const msg = document.getElementById('msg');
+  msg.textContent = 'Connexion en cours...';
+  try{
+    const email = document.getElementById('e').value.trim();
+    const password = document.getElementById('p').value;
+    const res = await api('/auth/login', {method:'POST', body: JSON.stringify({ email, password })});
+    const jwt = res.access_token || res.token;
+    localStorage.setItem('jwt', jwt);
+    // Récupérer l'utilisateur courant
+    const meRes = await fetch(API + '/auth/me', { headers: { 'Authorization': 'Bearer ' + jwt } });
+    let user = null; if (meRes.ok) user = await meRes.json();
+    if (user) localStorage.setItem('user', JSON.stringify(user));
+    msg.textContent = 'Connecté, redirection...';
+    const isAdmin = !!(user && (user.role === 'admin' || user.is_admin === true || (Array.isArray(user.roles) && user.roles.includes('admin'))));
+    location.href = isAdmin ? '/admin.html' : '/';
+  }catch(e){
+    msg.textContent = 'Erreur: ' + e.message;
+  }
+});
+</script>
+</body>
+</html>

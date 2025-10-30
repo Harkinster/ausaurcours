@@ -1,0 +1,121 @@
+:root{--bg:#0b1220;--bg2:#0f1626;--fg:#e7eefc;--muted:#a9b4c6;--blue:#3b82f6;--red:#ef4444;--ok:#22c55e;}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,Segoe UI,Roboto}
+#topbar{display:flex;gap:12px;align-items:center;justify-content:flex-start;padding:10px 14px;background:#0a1428;border-bottom:1px solid #1b2a46}
+#topbar .brand{color:#7dd3fc} .badge{padding:2px 6px;border-radius:6px;background:#334155}
+.ghost{background:transparent;border:1px solid #334155;color:var(--fg);padding:6px 10px;border-radius:8px;cursor:pointer}
+#layout{display:grid;grid-template-columns:260px 1fr;min-height:calc(100vh - 48px)}
+#nav{padding:12px;border-right:1px solid #1b2a46;background:var(--bg2)} #nav .group{margin:10px 6px;color:#9fb0cc;font-weight:600}
+#nav button{width:100%;padding:10px;border:0;border-radius:10px;background:#12203a;color:var(--fg);cursor:pointer;margin:6px 0}
+#nav button.active{background:var(--blue)} #nav .hint{color:var(--muted);font-size:12px;margin:8px 6px}
+.tab{display:none;padding:16px} .tab.active{display:block}
+.toolbar{display:flex;gap:10px;margin-bottom:10px}
+.list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.list .item{padding:8px 10px;background:#0e1a32;border:1px solid #1c2a49;border-radius:8px;cursor:pointer}
+.list .item.active{outline:2px solid var(--blue)}
+.editor input, .editor select, .editor textarea, .toolbar input, .toolbar select{width:100%;padding:10px;border-radius:8px;border:1px solid #22314f;background:#0a162c;color:var(--fg)}
+.row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:8px 0}
+.bar{display:flex;gap:10px;justify-content:flex-start;margin-top:10px}
+button{background:var(--blue);color:#fff;border:0;border-radius:8px;padding:10px 12px;cursor:pointer}
+button.danger{background:var(--red)}
+
+/* Notifications Toast */
+.toast-notification {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  color: white;
+  background: #1e293b;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  transform: translateY(100px);
+  opacity: 0;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  z-index: 1000;
+  max-width: 320px;
+}
+
+.toast-notification.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.toast-notification.success {
+  background: #10b981;
+}
+
+.toast-notification.error {
+  background: #ef4444;
+}
+
+.toast-notification.warning {
+  background: #f59e0b;
+}
+
+/* Style pour l'éditeur Quill */
+.ql-toolbar {
+  border: 1px solid #1b2a46 !important;
+  border-bottom: none !important;
+  border-radius: 8px 8px 0 0 !important;
+  background: #0a162c !important;
+}
+
+.ql-container {
+  border: 1px solid #1b2a46 !important;
+  border-top: none !important;
+  border-radius: 0 0 8px 8px !important;
+  background: #0a162c !important;
+  color: var(--fg) !important;
+}
+
+.ql-editor {
+  min-height: 200px !important;
+  color: var(--fg) !important;
+}
+
+.ql-snow .ql-stroke {
+  stroke: var(--fg) !important;
+}
+
+.ql-snow .ql-fill, .ql-snow .ql-stroke.ql-fill {
+  fill: var(--fg) !important;
+}
+
+.ql-snow .ql-picker {
+  color: var(--fg) !important;
+}
+
+.ql-snow .ql-picker-options {
+  background-color: #0a162c !important;
+  border: 1px solid #1b2a46 !important;
+}
+
+.ql-snow .ql-picker-item {
+  color: var(--fg) !important;
+}
+
+.ql-snow .ql-picker-item.ql-selected {
+  color: var(--blue) !important;
+}
+
+.ql-snow .ql-picker-label {
+  color: var(--fg) !important;
+}
+
+.ql-snow .ql-picker-label:hover {
+  color: var(--blue) !important;
+}
+
+/* Styles pour le tableau des articles */
+.table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+.table th { text-align: left; padding: 12px; background: #0e1a32; border-bottom: 2px solid #1b2a46; }
+.table td { padding: 12px; border-bottom: 1px solid #1b2a46; vertical-align: top; }
+.table tr:hover { background: rgba(59, 130, 246, 0.05); }
+.table .text-right { text-align: right; }
+.table .text-center { text-align: center; }
+.table .btn { margin-left: 4px; }
+
+.msg { margin-top:8px; color:var(--muted) }
+.modal { position:fixed; inset:0; background:#0008; display:none; align-items:center; justify-content:center }
+.modal.show{display:flex}
+.modal .panel{background:#0b1933;border:1px solid #203055;color:var(--fg);padding:18px;border-radius:12px;min-width:320px;display:flex;flex-direction:column;gap:10px}

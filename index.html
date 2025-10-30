@@ -3,17 +3,75 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Au SAURcours ! — Démo (croquis + thème clair)</title>
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net;
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' data: https:;
+    font-src 'self' data:;
+    connect-src 'self' https://ausaurcours.ddns.net http://localhost:8000 http://ausaurcours.ddns.net;
+    form-action 'self';
+    object-src 'none';
+    base-uri 'self';">
+  <title>Au SAURcours !</title>
   <link rel="stylesheet" href="style.css"/>
+  <link rel="icon" href="/assets/favicon.ico" sizes="any">
+  <link rel="shortcut icon" href="/assets/favicon.ico">
+  <script>
+    try {
+      if (!localStorage.getItem('jwt')) location.replace('/login.html');
+    } catch {}
+  </script>
+  
+  <!-- TinyMCE Editor -->
+  <script src="/static/tinymce/tinymce.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    /* Conteneur .brand : alignement horizontal propre (logo + texte) */
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    /* Conteneur du logo : taille fixe et centrage */
+    .brand .logo {
+      width: 56px;
+      height: 56px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      border-radius: 8px;
+      background: transparent;
+      vertical-align: middle;
+      flex: 0 0 auto;
+    }
+    .brand .logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    /* Le fallback texte est caché par défaut pour éviter la duplication visuelle.
+       Il ne sera affiché que si l'image ne peut pas être chargée. */
+    .brand .logo .logo-fallback {
+      display: none;
+      font-weight: 700;
+      font-size: 1.05rem;
+      margin-left: 0.4rem;
+    }
+    /* texte de marque ; pas besoin d'inline-block grâce à .brand flex */
+    .brand .brand-text {
+      line-height: 1;
+    }
+  </style>
 </head>
 <body>
   <aside class="sidebar">
     <div class="brand">
-      <div class="logo">SAUR</div>
-      <div class="brand-text">
-        <div class="title">Au <b>SAUR</b>cours !</div>
-        <div class="subtitle">Base de process interne</div>
-      </div>
+    	<a href="/" class="logo-link">
+    		<img id="logoImg" src="assets/logo.png" alt="Au SAURcours" class="sidebar-logo">
+    	</a>
     </div>
     <nav class="nav">
       <button class="navbtn active" data-tab="categories">📚 Catégories</button>
@@ -22,11 +80,7 @@
       <button class="navbtn" data-tab="mails">✉️ Mails</button>
     </nav>
     <div class="foot">
-      <label class="switch">
-        <input id="adminToggle" type="checkbox"/>
-        <span class="slider"></span>
-      </label>
-      <span class="muted">Mode admin</span>
+      <button id="logoutBtnMain" title="Déconnexion">Déconnexion</button>
     </div>
   </aside>
 
@@ -43,11 +97,58 @@
       <div class="article-head">
         <div class="breadcrumbs" id="breadcrumbs">Catégories › Abonnement</div>
         <div class="article-actions">
+          <button id="newBtn" title="Créer un nouvel article">➕ Nouvel article</button>
+          <button id="infoBtn" title="Infos article">ℹ️ Infos</button>
           <button id="editBtn" class="edit" disabled title="Modifier l’article (admin)">
             ✏️ Modifier l’article
           </button>
         </div>
       </div>
+      <section id="recent" style="margin-bottom:12px;">
+        <h3 style="margin:6px 0;">Articles récents</h3>
+        <div id="recent-list"></div>
+      </section>
+
+      <section id="create-panel" style="display:none; background:#fff; border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow); padding:16px; margin:12px 0;">
+        <h3 style="margin-top:0;">Nouveau contenu</h3>
+        <div class="editor">
+          <div class="row">
+            <input id="na-title" placeholder="Titre"/>
+            <input id="na-slug" placeholder="Slug (auto)"/>
+            <input id="na-category" placeholder="Catégorie (slug)"/>
+          </div>
+          <div class="row">
+            <input id="na-subcategory" placeholder="Sous-catégorie (slug, optionnel)"/>
+            <input id="na-tags" placeholder="Tags (séparés par des virgules)"/>
+            <div></div>
+          </div>
+          <textarea id="na-content" style="min-height:240px" placeholder="Contenu (HTML ou texte)"></textarea>
+        </div>
+        <div class="bar">
+          <button id="na-save">Créer</button>
+          <button id="na-cancel">Fermer</button>
+        </div>
+      </section>
+
+      <section id="edit-panel" style="display:none; background:#fff; border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow); padding:16px; margin:12px 0;">
+        <h3 style="margin-top:0;">Modifier l’article</h3>
+        <div class="editor">
+          <div class="row">
+            <input id="ed2-title" placeholder="Titre"/>
+            <input id="ed2-slug" placeholder="Slug"/>
+            <input id="ed2-category" placeholder="Catégorie (slug)"/>
+          </div>
+          <div class="row">
+            <input id="ed2-tags" placeholder="Tags (séparés par des virgules)"/>
+            <div></div><div></div>
+          </div>
+          <textarea id="ed2-content" style="min-height:300px" placeholder="Contenu (HTML ou texte)"></textarea>
+        </div>
+        <div class="bar">
+          <button id="ed2-save">Enregistrer</button>
+          <button id="ed2-cancel">Fermer</button>
+        </div>
+      </section>
 
       <article class="article" id="article">
         <h1 id="art-title">Créer un abonnement (particulier)</h1>
@@ -61,6 +162,72 @@
   </div>
 
   <script src="data.js"></script>
-  <script src="app.js" defer></script>
+  <script src="app.js?v=20251019" defer></script>
+  <script>
+    // Ajuste la largeur de la sidebar en fonction de la largeur du logo
+    window.addEventListener('load', () => {
+      const img = document.getElementById('logoImg');
+      const root = document.documentElement;
+      function apply() {
+        if (!img) return;
+        const w = img.getBoundingClientRect().width;
+        const pad = 40; // marge latérale
+        if (w && w > 0) root.style.setProperty('--sidebar-w', (Math.ceil(w) + pad) + 'px');
+      }
+      apply();
+      // réappliquer si le logo charge plus tard ou si la fenêtre change
+      img?.addEventListener('load', apply);
+      window.addEventListener('resize', apply);
+    });
+  </script>
+  <script>
+    // Si le PNG ne charge pas, afficher le texte fallback
+    (function(){
+      var img = document.getElementById('logoImg');
+      var fb = document.querySelector('.logo-fallback');
+      if (!img) return;
+
+      img.addEventListener('load', function(){
+        if (fb) fb.setAttribute('aria-hidden', 'true');
+      });
+
+      img.addEventListener('error', function(){
+        if (fb) {
+          fb.style.display = 'inline-block';
+          fb.setAttribute('aria-hidden', 'false');
+        }
+        img.style.display = 'none';
+      });
+    })();
+  </script>
+
+  <script>
+document.addEventListener('DOMContentLoaded', function () {
+  tinymce.init({
+    selector: '#na-content, #ed2-content',
+    height: 500,
+    menubar: false,
+    plugins: [
+      'advlist', 'autolink', 'lists', 'link', 'image', 'charmap', 'preview', 'anchor',
+      'searchreplace', 'visualblocks', 'code', 'fullscreen',
+      'insertdatetime', 'media', 'table', 'help', 'wordcount'
+    ],
+    toolbar: 'undo redo | blocks | bold italic backcolor | ' +
+             'alignleft aligncenter alignright alignjustify | ' +
+             'bullist numlist outdent indent | removeformat | image | code | help',
+    content_style: 'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size:16px; line-height:1.6; }',
+    images_upload_url: '/api/upload-image',
+    images_upload_credentials: true,
+    promotion: false,
+    browser_spellcheck: true,
+    branding: false,
+    elementpath: true,
+    statusbar: true,
+    resize: true
+  });
+});
+</script>
+
+
 </body>
 </html>
